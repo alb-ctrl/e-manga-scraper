@@ -43,46 +43,101 @@ def clean_manga_name(manga_name, group_name, artist_name):
 
     return manga_name
 
-def search_mangas_by_artist(artist_name):
+def check_ip_banned(response):
+    if "Your IP address has been temporarily banned for excessive pageloads." in response.text:
+        print("IP address banned. Please try again later.")
+        return True
+    return False
+
+def extract_manga_info_from_table(table):
+    manga_list = []
+    if table:
+        while True:
+            results = table.find_all('div', class_='glink')
+            for result in results:
+                manga_title = result.text.strip()
+                # Get the parent <a> element
+                parent_a = result.parent
+                manga_link = parent_a['href']
+                # Extract language information
+                manga_info = {'title': manga_title, 'link': manga_link}
+                language_elements = parent_a.find_all('div', class_='gt')
+                for element in language_elements:
+                    if 'language:translated' in element['title']:
+                        manga_info['translated'] = True
+                    elif 'language:' in element['title'] and not 'language:translated' in element['title']:
+                        manga_info['language'] = element['title'].split(':')[-1]
+
+                manga_list.append(manga_info)
+            
+            # Check for next button
+            next_button = table.find_next_sibling('div', class_='c2').find('a', id='dnext')
+            if not next_button or not next_button.get('href'):
+                break
+
+            # Fetch next page
+            next_url = next_button['href']
+            response = requests.get(next_url)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            table = soup.find('table', class_='itg gltc')
+    else:
+        print("Table not found")
+
+    return manga_list
+
+def search_manga_by_artist_and_word(artist_name, word_to_search):
     base_url = ""
-    search_url = base_url + artist_name.replace(" ", "+")
-    print ("search_url: "+search_url)
+    search_url = base_url + "artist%3A" + artist_name.replace(" ", "+") + "%24+" + word_to_search.replace(" ", "+")
     response = requests.get(search_url)
     if response.status_code != 200:
         print("Failed to fetch the webpage. Status code:", response.status_code)
         return []
-    print ("response:" + response.text)
+
+    if check_ip_banned(response):
+        return []
+
     soup = BeautifulSoup(response.text, 'html.parser')
+
+    table = soup.find('table', class_='itg gltc')
+    return extract_manga_info_from_table(table)
+
+def search_mangas_by_artist(artist_name):
+    base_url = ""
+    search_url = base_url + artist_name.replace(" ", "+")
+    response = requests.get(search_url)
+    if response.status_code != 200:
+        print("Failed to fetch the webpage. Status code:", response.status_code)
+        return []
+    
+    if check_ip_banned(response):
+        return []
+    soup = BeautifulSoup(response.text, 'lxml')
     
     # Extract list of other mangas by the artist
     manga_list = []
-    results = soup.find_all('div', class_='gl1t')
-    
-    for result in results:
-        
-        manga_title = result.find('div', class_='gl3c').text.strip()
-        manga_list.append(manga_title)
-
-    return manga_list
+    table = soup.find('table', class_='itg gltc')
+    return extract_manga_info_from_table(table)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python script.py <url>")
-        sys.exit(1)
+    # if len(sys.argv) != 2:
+    #     print("Usage: python script.py <url>")
+    #     sys.exit(1)
 
-    url = sys.argv[1]
-    manga_name, group_name, artist_name, language = scrape_manga_info(url)
-    cleaned_manga_name = clean_manga_name(manga_name, group_name, artist_name)
+    # url = sys.argv[1]
+    # manga_name, group_name, artist_name, language = scrape_manga_info(url)
+    # cleaned_manga_name = clean_manga_name(manga_name, group_name, artist_name)
 
-    print("Manga Name:", manga_name)
-    print("Group Name:", group_name)
-    print("Artist Name:", artist_name)
-    print("Language:", language)
-    print("Cleaned Manga Name:", cleaned_manga_name)
+    # print("Manga Name:", manga_name)
+    # print("Group Name:", group_name)
+    # print("Artist Name:", artist_name)
+    # print("Language:", language)
+    # print("Cleaned Manga Name:", cleaned_manga_name)
 
-    artist_name = "shayo"
+    artist_name = ""
     print(f"Other mangas by {artist_name}:")
     manga_list = search_mangas_by_artist(artist_name)
-    for manga_title in manga_list:
-        print(manga_title)
+    print(len(manga_list))
+    for manga_info in manga_list:
+        if manga_info.get('translated') == True:
+            print(manga_info)
